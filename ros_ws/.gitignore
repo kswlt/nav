@@ -1,0 +1,12 @@
+# 忽略ROS 2的编译、安装和日志目录
+build/
+install/
+log/
+
+# 忽略VSCode编辑器配置文件夹
+.vscode/
+
+# 忽略其他常见的系统或编译生成文件
+*.log
+.DS_Store
+Thumbs.db
