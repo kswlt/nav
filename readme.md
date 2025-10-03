@@ -1,4 +1,6 @@
-# 如何修改海康SDK导致的point_lio报错bug
+当前版本为派大星1.2.0
+
+### 如何修改海康SDK导致的point_lio报错bug
 
 ![alt text](image.png)
 
@@ -103,3 +105,25 @@
 >       * **第二步**：执行 `colcon build --symlink-install` 重新编译整个工作空间。
 >       * **第三步**：如果问题依旧，尝试用 `apt` 重新安装 `libusb-1.0-0-dev` 和 `libpcl-dev`，然后再次清理并编译。
 > 3.  **验证**: 当 `pointlio_mapping` 节点能够成功启动不再崩溃后，再次检查TF树的问题。大概率上，TF错误会随之消失。如果TF错误依然存在，您需要检查是哪个节点负责发布 `odom` 到 `base_link` 的变换，并排查该节点的问题。
+
+
+
+
+
+### 如何修派大星行为树bug  
+
+具体报错如图  
+
+![alt text](e75af6b63bc8a4a5af7e118d90674ec9_720.jpg)
+
+
+
+![alt text](Screenshot_2025-10-03-20-44-37-163_com.tencent.mo.jpg)  
+
+
+
+![alt text](Screenshot_2025-10-03-20-47-09-975_com.tencent.mo.jpg)  
+
+
+
+![alt text](Image_1759495635609.png)  
