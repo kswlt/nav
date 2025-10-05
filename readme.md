@@ -127,3 +127,15 @@
 
 
 ![alt text](Image_1759495635609.png)  
+
+
+
+
+### 修改雷达位置后需要重力校准    
+![alt text](image-1.png)   
+
+![alt text](image-2.png)     
+   
+  
+
+简单来说就就是看看雷达imu话题数据，然后改nav配置文件里的gravity
