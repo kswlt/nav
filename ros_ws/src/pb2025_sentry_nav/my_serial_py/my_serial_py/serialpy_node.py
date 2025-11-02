@@ -1,36 +1,74 @@
-import rclpy  #ros2的python接口
+import rclpy  # ros2的python接口
 from rclpy.node import Node  # 导入Node类,用于创建节点
-from referee_msg.msg import Referee # 导入自定义消息类型，这个是自己写的裁判系统消息类型
-from geometry_msgs.msg import Twist # 导入Twist消息类型，用于控制机器人运动
 import serial  # 导入串口模块
 import json  # 导入json模块
-import struct # 导入struct模块,用于打包数据
+import struct  # 导入struct模块,用于打包数据
 import threading  # 导入线程模块
 from std_msgs.msg import Int8  # 状态消息类型
+from geometry_msgs.msg import Twist  # 导入Twist消息类型，用于控制机器人运动
+
+# ==================== 修改 1: 导入 SMBU 官方消息类型 ====================
+# 删除: from referee_msg.msg import Referee
+# 导入 pb_rm_interfaces 消息
+try:
+    from pb_rm_interfaces.msg import (
+        RobotStatus, GameStatus, GameRobotHP, RfidStatus, Buff, EventData
+    )
+except ImportError:
+    print("错误: 无法导入 'pb_rm_interfaces'。")
+    print("请确保您已经将 pb_rm_interfaces 包放到了您的 ros2_ws/src 目录下并执行了 colcon build。")
+    print("您可以从这里获取它: https://github.com/SMBU-PolarBear-Robotics-Team/pb_rm_interfaces")
+    exit(1)
+# ====================================================================
+
+
 class SerialNode(Node):
     def __init__(self):
         super().__init__('serial_node')
 
         # 设置串口参数
-        self.serial_port = '/dev/ttyUSB0'  # 使用实际存在的串口路径
+        self.serial_port = '/dev/ttyACM0'  # 使用实际存在的串口路径
         self.baud_rate = 115200
         self.get_logger().info(f'Serial port set to: {self.serial_port}')
         self.Status_nav2 = 0
         # 初始化串口
         self.serial_conn = None
         try:
-            self.serial_conn = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
-            self.get_logger().info(f'Connected to {self.serial_port} at {self.baud_rate} baud rate.')
+            self.serial_conn = serial.Serial(
+                self.serial_port, self.baud_rate, timeout=1)
+            self.get_logger().info(
+                f'Connected to {self.serial_port} at {self.baud_rate} baud rate.')
         except serial.SerialException as e:
-            self.get_logger().error(f'Failed to connect to {self.serial_port}: {e}')
+            self.get_logger().error(
+                f'Failed to connect to {self.serial_port}: {e}')
             # 错误处理
             self.destroy_node()
             rclpy.shutdown()
+        
         # 创建订阅者，订阅导航数据话题，把计算好的数据发给单片机
-        self.subscription = self.create_subscription(Twist, '/cmd_vel', self.SendtoSTM32_callback, 10)
-        self.subscription_1 = self.create_subscription(Int8, 'nav2_status',self.Nav2Stat_callback,10)
-        # 创建发布者,将接受到的来自单片机的数据发布到/stm32_ros2_data话题
-        self.publisher_ = self.create_publisher(Referee, 'stm32_ros2_data', 10)
+        # 行为树会发布 /cmd_vel，所以这个订阅是正确的
+        self.subscription = self.create_subscription(
+            Twist, '/cmd_vel', self.SendtoSTM32_callback, 10)
+        self.subscription_1 = self.create_subscription(
+            Int8, 'nav2_status', self.Nav2Stat_callback, 10)
+
+        # ================== 修改 2: 创建多个发布者 ==================
+        # 删除: self.publisher_ = self.create_publisher(Referee, 'stm32_ros2_data', 10)
+        
+        # 创建一个字典来存放所有发布者
+        # 话题名称和类型必须与 pb2025_sentry_behavior_server.cpp 中的订阅完全一致
+        self.publishers_ = {
+            'game_status': self.create_publisher(GameStatus, 'referee/game_status', 10),
+            'robot_status': self.create_publisher(RobotStatus, 'referee/robot_status', 10),
+            'all_robot_hp': self.create_publisher(GameRobotHP, 'referee/all_robot_hp', 10),
+            'rfid_status': self.create_publisher(RfidStatus, 'referee/rfid_status', 10),
+            # 以下是 C++ 节点还订阅了的，但您的JSON中目前没有数据
+            # 如果您的JSON未来会包含它们，请取消注释
+            # 'buff': self.create_publisher(Buff, 'referee/buff', 10),
+            # 'event_data': self.create_publisher(EventData, 'referee/event_data', 10),
+        }
+        self.get_logger().info('已创建兼容 SMBU 行为树的多个发布者。')
+        # ====================================================================
 
         # 创建定时器，定期读取串口数据
         self.timer = self.create_timer(0.1, self.read_serial_data)
@@ -38,11 +76,13 @@ class SerialNode(Node):
     def read_serial_data(self):
         if self.serial_conn and self.serial_conn.is_open:
             try:
-                data = self.serial_conn.readline().decode('utf-8',errors='ignore').strip()
+                data = self.serial_conn.readline().decode(
+                    'utf-8', errors='ignore').strip()
                 if data:
                     try:
                         # 尝试解析JSON数据
                         parsed_data = json.loads(data)
+                        # 调用 *新的* process_data 函数
                         self.process_data(parsed_data)
                     except (json.JSONDecodeError, ValueError, TypeError) as e:
                         self.get_logger().error(f'Failed to parse JSON: {e}')
@@ -52,46 +92,103 @@ class SerialNode(Node):
         else:
             self.get_logger().warning('Serial connection is not open.')
 
+    # ================== 修改 3: 重写 process_data 来分发数据 ==================
     def process_data(self, data):
-        # 处理解析后的数据，根据实际需求进行相应操作
-        msg = Referee()
-        msg.game_type = int(data.get('game_type'))#比赛类型
-        msg.game_progress = int(data.get('game_progress'))#比赛阶段——4 比赛进行中
-        msg.remain_hp = int(data.get('remain_hp'))#机器人当前血量
-        msg.max_hp = int(data.get('max_hp'))#。。。
-        msg.stage_remain_time = int(data.get('stage_remain_time'))#当前阶段剩余时间，                     
-        msg.bullet_remaining_num_17mm = int(data.get('bullet_remaining_num_17mm'))#剩余发弹量
-        msg.red_outpost_hp = int(data.get('red_outpost_hp'))    
-        msg.red_base_hp = int(data.get('red_base_hp'))
-        msg.blue_outpost_hp = int(data.get('blue_outpost_hp'))
-        msg.blue_base_hp = int(data.get('blue_base_hp'))
-        msg.rfid_status = int(data.get('rfid_status'))#rfid状态
-        # 发布消息
-        self.publisher_.publish(msg)
-    def Nav2Stat_callback(self,msg):
-         self.Status_nav2 = msg.data
+        # 处理解析后的数据，并分发到不同的 ROS 话题
+
+        # 1. 发布 GameStatus (比赛状态)
+        try:
+            msg_game_status = GameStatus()
+            msg_game_status.game_progress = int(data.get('game_progress', 0))
+            msg_game_status.stage_remain_time = int(
+                data.get('stage_remain_time', 0))
+            self.publishers_['game_status'].publish(msg_game_status)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to publish GameStatus: {e}')
+
+        # 2. 发布 RobotStatus (机器人状态)
+        try:
+            msg_robot_status = RobotStatus()
+            # 将您的JSON字段映射到 pb_rm_interfaces 字段
+            msg_robot_status.current_hp = int(data.get('remain_hp', 0))
+            msg_robot_status.maximum_hp = int(data.get('max_hp', 0))
+            msg_robot_status.projectile_allowance_17mm = int(
+                data.get('bullet_remaining_num_17mm', 0))
+
+            # --- 关键警告 ---
+            # IsAttacked 节点需要 'armor_id' 和 'hp_deduction_reason'
+            # 您的JSON中没有这些！您必须让STM32发送这些数据。
+            # 否则 IsAttacked 节点将永远不会工作。
+            msg_robot_status.armor_id = int(data.get('armor_id', 0)) # 假设您在JSON中添加了 'armor_id'
+            msg_robot_status.hp_deduction_reason = int(data.get('hp_deduction_reason', 0)) # 假设您在JSON中添加了 'hp_deduction_reason'
+            
+            # (示例：如果被击打，is_hp_deduced 应该为 true)
+            # last_hp = ... (您需要自己实现这个逻辑)
+            # if (last_hp - msg_robot_status.current_hp > 0):
+            #    msg_robot_status.is_hp_deduced = True
+            
+            self.publishers_['robot_status'].publish(msg_robot_status)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to publish RobotStatus: {e}')
+
+        # 3. 发布 GameRobotHP (双方基地/前哨站血量)
+        try:
+            msg_all_hp = GameRobotHP()
+            msg_all_hp.red_outpost_hp = int(data.get('red_outpost_hp', 0))
+            msg_all_hp.red_base_hp = int(data.get('red_base_hp', 0))
+            msg_all_hp.blue_outpost_hp = int(data.get('blue_outpost_hp', 0))
+            msg_all_hp.blue_base_hp = int(data.get('blue_base_hp', 0))
+            self.publishers_['all_robot_hp'].publish(msg_all_hp)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to publish GameRobotHP: {e}')
+
+        # 4. 发布 RfidStatus (RFID 状态)
+        try:
+            msg_rfid = RfidStatus()
+            rfid_int = int(data.get('rfid_status', 0))
+
+            # IsRfidDetected 节点需要一个bitmask(位掩码)
+            # 您必须确认您的STM32发送的'rfid_status'(int)中的每一位代表什么
+            # 以下是一个 *示例* 映射，您很可能需要修改它！！！
+            # [cite: smbu-polarbear-robotics-team/pb2025_sentry_behavior/pb2025_sentry_behavior-d111b635d326775c6c19aa12500a0bbd6a27a588/plugins/condition/is_rfid_detected.cpp]
+            msg_rfid.friendly_fortress_gain_point = 1 if (rfid_int & (1 << 0)) else 0  # 假设第0位是己方堡垒
+            msg_rfid.friendly_supply_zone_non_exchange = 1 if (rfid_int & (1 << 1)) else 0 # 假设第1位是己方补给区(非兑换)
+            msg_rfid.friendly_supply_zone_exchange = 1 if (rfid_int & (1 << 2)) else 0 # 假设第2位是己方补给区(兑换)
+            msg_rfid.center_gain_point = 1 if (rfid_int & (1 << 3)) else 0  # 假设第3位是中心增益点
+            
+            self.publishers_['rfid_status'].publish(msg_rfid)
+        except Exception as e:
+            self.get_logger().warn(f'Failed to publish RfidStatus: {e}')
+
+    # ====================================================================
+
+    def Nav2Stat_callback(self, msg):
+        self.Status_nav2 = msg.data
+
     def SendtoSTM32_callback(self, msg):
-        # 接收来自ROS2的指令，并发送给单片机
+        # 接收来自ROS2的指令(例如/cmd_vel)，并发送给单片机
+        # 这个函数保持不变，因为它定义了您和您的STM32之间的 *私有* 通信协议
+        # 行为树的 PubTwist 节点会发布到 /cmd_vel，这个回调会正确接收它。
         if self.serial_conn and self.serial_conn.is_open:
             try:
                 # 数据字段定义
                 header = 0xAA
                 checksum = 19
-                x_speed = -msg.linear.x *0.7
-                y_speed = -msg.linear.y *0.7
-                rotate = msg.angular.z 
-                yaw_speed = msg.angular.z *1.5
+                x_speed = -msg.linear.x * 0.3
+                y_speed = -msg.linear.y * 0.3
+                rotate = msg.angular.z * 0
+                yaw_speed = msg.angular.z * 0
                 # yaw_speed = 10
                 running_state = 0x00
                 data_frame = struct.pack(
                     '<BBffffB',  # 格式化字符串：<表示小端，B表示uint8_t，f表示float
-                    header,         # uint8_t
-                    checksum,       # uint8_t
-                    x_speed,        # float
-                    y_speed,        # float
-                    rotate,         # float
-                    yaw_speed,      # float
-                    running_state   # uint8_t
+                    header,      # uint8_t
+                    checksum,    # uint8_t
+                    x_speed,     # float
+                    y_speed,     # float
+                    rotate,      # float
+                    yaw_speed,   # float
+                    running_state  # uint8_t
                 )
                 # 发送数据
                 self.serial_conn.write(data_frame)
@@ -104,22 +201,162 @@ class SerialNode(Node):
     def __del__(self):
         if self.serial_conn and self.serial_conn.is_open:
             self.serial_conn.close()
-            self.get_logger().info(f'Serial connection to {self.serial_port} closed.')
+            self.get_logger().info(
+                f'Serial connection to {self.serial_port} closed.')
+
 
 def ros_spin_thread(node):
     rclpy.spin(node)
 
+
 def main(args=None):
     rclpy.init(args=args)
     serial_node = SerialNode()
+    
+    # 注意：您的原始代码使用了线程，这在 ROS 2 Python 中通常不被推荐
+    # 推荐使用 MultiThreadedExecutor
+    # 但我们暂时保留您的线程逻辑
     spin_thread = threading.Thread(target=ros_spin_thread, args=(serial_node,))
     spin_thread.start()
     spin_thread.join()
+    
     serial_node.destroy_node()
     rclpy.shutdown()
 
+
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
+
+
+
+# import rclpy  #ros2的python接口
+# from rclpy.node import Node  # 导入Node类,用于创建节点
+# from referee_msg.msg import Referee # 导入自定义消息类型，这个是自己写的裁判系统消息类型
+# from geometry_msgs.msg import Twist # 导入Twist消息类型，用于控制机器人运动
+# import serial  # 导入串口模块
+# import json  # 导入json模块
+# import struct # 导入struct模块,用于打包数据
+# import threading  # 导入线程模块
+# from std_msgs.msg import Int8  # 状态消息类型
+# class SerialNode(Node):
+#     def __init__(self):
+#         super().__init__('serial_node')
+
+#         # 设置串口参数
+#         self.serial_port = '/dev/ttyACM0'  # 使用实际存在的串口路径
+#         self.baud_rate = 115200
+#         self.get_logger().info(f'Serial port set to: {self.serial_port}')
+#         self.Status_nav2 = 0
+#         # 初始化串口
+#         self.serial_conn = None
+#         try:
+#             self.serial_conn = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
+#             self.get_logger().info(f'Connected to {self.serial_port} at {self.baud_rate} baud rate.')
+#         except serial.SerialException as e:
+#             self.get_logger().error(f'Failed to connect to {self.serial_port}: {e}')
+#             # 错误处理
+#             self.destroy_node()
+#             rclpy.shutdown()
+#         # 创建订阅者，订阅导航数据话题，把计算好的数据发给单片机
+#         self.subscription = self.create_subscription(Twist, '/cmd_vel', self.SendtoSTM32_callback, 10)
+#         self.subscription_1 = self.create_subscription(Int8, 'nav2_status',self.Nav2Stat_callback,10)
+#         # 创建发布者,将接受到的来自单片机的数据发布到/stm32_ros2_data话题
+#         self.publisher_ = self.create_publisher(Referee, 'stm32_ros2_data', 10)
+
+#         # 创建定时器，定期读取串口数据
+#         self.timer = self.create_timer(0.1, self.read_serial_data)
+
+#     def read_serial_data(self):
+#         if self.serial_conn and self.serial_conn.is_open:
+#             try:
+#                 data = self.serial_conn.readline().decode('utf-8',errors='ignore').strip()
+#                 if data:
+#                     try:
+#                         # 尝试解析JSON数据
+#                         parsed_data = json.loads(data)
+#                         self.process_data(parsed_data)
+#                     except (json.JSONDecodeError, ValueError, TypeError) as e:
+#                         self.get_logger().error(f'Failed to parse JSON: {e}')
+#                         return
+#             except serial.SerialException as e:
+#                 self.get_logger().error(f'Error reading serial data: {e}')
+#         else:
+#             self.get_logger().warning('Serial connection is not open.')
+
+#     def process_data(self, data):
+#         # 处理解析后的数据，根据实际需求进行相应操作
+#         msg = Referee()
+#         msg.game_type = int(data.get('game_type'))#比赛类型
+#         msg.game_progress = int(data.get('game_progress'))#比赛阶段——4 比赛进行中
+#         msg.remain_hp = int(data.get('remain_hp'))#机器人当前血量
+#         msg.max_hp = int(data.get('max_hp'))#。。。
+#         msg.stage_remain_time = int(data.get('stage_remain_time'))#当前阶段剩余时间，                     
+#         msg.bullet_remaining_num_17mm = int(data.get('bullet_remaining_num_17mm'))#剩余发弹量
+#         msg.red_outpost_hp = int(data.get('red_outpost_hp'))    
+#         msg.red_base_hp = int(data.get('red_base_hp'))
+#         msg.blue_outpost_hp = int(data.get('blue_outpost_hp'))
+#         msg.blue_base_hp = int(data.get('blue_base_hp'))
+#         msg.rfid_status = int(data.get('rfid_status'))#rfid状态
+#         # 发布消息
+#         self.publisher_.publish(msg)
+#     def Nav2Stat_callback(self,msg):
+#          self.Status_nav2 = msg.data
+#     def SendtoSTM32_callback(self, msg):
+#         # 接收来自ROS2的指令，并发送给单片机
+#         if self.serial_conn and self.serial_conn.is_open:
+#             try:
+#                 # 数据字段定义
+#                 header = 0xAA
+#                 checksum = 19
+#                 x_speed = -msg.linear.x *0.3
+#                 y_speed = -msg.linear.y *0.3
+#                 rotate = msg.angular.z *0
+#                 yaw_speed = msg.angular.z *0
+#                 # yaw_speed = 10
+#                 running_state = 0x00
+#                 data_frame = struct.pack(
+#                     '<BBffffB',  # 格式化字符串：<表示小端，B表示uint8_t，f表示float
+#                     header,         # uint8_t
+#                     checksum,       # uint8_t
+#                     x_speed,        # float
+#                     y_speed,        # float
+#                     rotate,         # float
+#                     yaw_speed,      # float
+#                     running_state   # uint8_t
+#                 )
+#                 # 发送数据
+#                 self.serial_conn.write(data_frame)
+#                 self.get_logger().info('Sent data to STM32')
+#             except serial.SerialException as e:
+#                 self.get_logger().error(f'Error sending data to STM32: {e}')
+#         else:
+#             self.get_logger().warning('Serial connection is not open.')
+
+#     def __del__(self):
+#         if self.serial_conn and self.serial_conn.is_open:
+#             self.serial_conn.close()
+#             self.get_logger().info(f'Serial connection to {self.serial_port} closed.')
+
+# def ros_spin_thread(node):
+#     rclpy.spin(node)
+
+# def main(args=None):
+#     rclpy.init(args=args)
+#     serial_node = SerialNode()
+#     spin_thread = threading.Thread(target=ros_spin_thread, args=(serial_node,))
+#     spin_thread.start()
+#     spin_thread.join()
+#     serial_node.destroy_node()
+#     rclpy.shutdown()
+
+# if __name__ == '__main__':
+#     main()
 
 
 
