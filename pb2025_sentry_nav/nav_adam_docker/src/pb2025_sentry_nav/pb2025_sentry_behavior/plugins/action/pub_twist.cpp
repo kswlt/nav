@@ -1,55 +1,48 @@
 // Copyright 2025 Lihan Chen
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Licensed under the Apache License, Version 2.0
 
 #include "pb2025_sentry_behavior/plugins/action/pub_twist.hpp"
+#include <thread>
+#include <chrono>
 
 namespace pb2025_sentry_behavior
 {
 
 PublishTwistAction::PublishTwistAction(
   const std::string & name, const BT::NodeConfig & config, const BT::RosNodeParams & params)
-: RosTopicPubStatefulActionNode(name, config, params)
+: BT::RosTopicPubNode<geometry_msgs::msg::Twist>(name, config, params)
 {
 }
 
 BT::PortsList PublishTwistAction::providedPorts()
 {
-  return providedBasicPorts(
-    {BT::InputPort<double>("v_x", 0.0, "Linear X velocity (m/s)"),
-     BT::InputPort<double>("v_y", 0.0, "Linear Y velocity (m/s)"),
-     BT::InputPort<double>("v_yaw", 0.0, "Angular Z velocity (rad/s)")});
+  return providedBasicPorts({
+    BT::InputPort<double>("v_x", 0.0, "Linear X velocity (m/s)"),
+    BT::InputPort<double>("v_y", 0.0, "Linear Y velocity (m/s)"),
+    BT::InputPort<double>("v_yaw", 0.0, "Angular Z velocity (rad/s)"),
+    // 修改点 1: 类型改为 int
+    BT::InputPort<int>("duration", "Publish then sleep duration in milliseconds")
+  });
 }
 
 bool PublishTwistAction::setMessage(geometry_msgs::msg::Twist & msg)
 {
-  double vx = 0.0, vy = 0.0, vyaw = 0.0;
-  getInput("v_x", vx);
-  getInput("v_y", vy);
-  getInput("v_yaw", vyaw);
+  double v_x, v_y, v_yaw;
+  if (!getInput("v_x", v_x) || !getInput("v_y", v_y) || !getInput("v_yaw", v_yaw)) {
+    return false;
+  }
 
-  msg.linear.x = vx;
-  msg.linear.y = vy;
-  msg.angular.z = vyaw;
+  msg.linear.x = v_x;
+  msg.linear.y = v_y;
+  msg.angular.z = v_yaw;
 
-  return true;
-}
-
-bool PublishTwistAction::setHaltMessage(geometry_msgs::msg::Twist & msg)
-{
-  msg.linear.x = 0;
-  msg.linear.y = 0;
-  msg.angular.z = 0;
+  // 修改点 2: 读取 int 并转换为 milliseconds
+  auto duration_ms = getInput<int>("duration");
+  if(duration_ms && duration_ms.value() > 0)
+  {
+      std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms.value()));
+  }
+  
   return true;
 }
 

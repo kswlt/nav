@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef PB2025_SENTRY_BEHAVIOR__CUSTOM_TYPES_HPP_
+#define PB2025_SENTRY_BEHAVIOR__CUSTOM_TYPES_HPP_
+
 #include "behaviortree_cpp/bt_factory.h"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
-#ifndef PB2025_SENTRY_BEHAVIOR__CUSTOM_TYPES_HPP_
-#define PB2025_SENTRY_BEHAVIOR__CUSTOM_TYPES_HPP_
-
 namespace BT
 {
+
+// 关键修改：添加 'inline' 关键字
 template <>
-geometry_msgs::msg::PoseStamped convertFromString(StringView key)
+inline geometry_msgs::msg::PoseStamped convertFromString(StringView key)
 {
   auto parts = BT::splitString(key, ';');
   if (parts.size() == 7) {
@@ -46,9 +48,10 @@ geometry_msgs::msg::PoseStamped convertFromString(StringView key)
     output.pose.orientation = tf2::toMsg(quaternion);
     return output;
   } else {
-    throw RuntimeError("Invalid input");
+    throw RuntimeError("Invalid input, expected format: 'x;y;z;qx;qy;qz;qw' or 'x;y;yaw'");
   }
 }
+
 }  // namespace BT
 
 #endif  // PB2025_SENTRY_BEHAVIOR__CUSTOM_TYPES_HPP_

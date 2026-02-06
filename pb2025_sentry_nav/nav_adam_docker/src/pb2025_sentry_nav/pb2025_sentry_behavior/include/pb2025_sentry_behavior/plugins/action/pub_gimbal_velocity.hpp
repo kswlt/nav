@@ -17,14 +17,15 @@
 
 #include <string>
 
-#include "behaviortree_ros2/bt_topic_pub_action_node.hpp"
+// 1. 修改引用
+#include "behaviortree_ros2/bt_topic_pub_node.hpp"
 #include "pb_rm_interfaces/msg/gimbal_cmd.hpp"
 
 namespace pb2025_sentry_behavior
 {
 
-class PublishGimbalVelocity
-: public BT::RosTopicPubStatefulActionNode<pb_rm_interfaces::msg::GimbalCmd>
+// 2. 修改基类为 RosTopicPubNode
+class PublishGimbalVelocity : public BT::RosTopicPubNode<pb_rm_interfaces::msg::GimbalCmd>
 {
 public:
   PublishGimbalVelocity(
@@ -32,8 +33,9 @@ public:
 
   static BT::PortsList providedPorts();
 
-protected:
   bool setMessage(pb_rm_interfaces::msg::GimbalCmd & msg) override;
+
+  // 3. 删除 setHaltMessage 声明
 };
 
 }  // namespace pb2025_sentry_behavior

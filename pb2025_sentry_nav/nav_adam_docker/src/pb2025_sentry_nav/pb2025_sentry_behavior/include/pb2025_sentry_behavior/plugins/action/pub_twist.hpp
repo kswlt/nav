@@ -17,13 +17,15 @@
 
 #include <string>
 
-#include "behaviortree_ros2/bt_topic_pub_action_node.hpp"
+// 1. 修改引用
+#include "behaviortree_ros2/bt_topic_pub_node.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 
 namespace pb2025_sentry_behavior
 {
 
-class PublishTwistAction : public BT::RosTopicPubStatefulActionNode<geometry_msgs::msg::Twist>
+// 2. 修改基类为 RosTopicPubNode
+class PublishTwistAction : public BT::RosTopicPubNode<geometry_msgs::msg::Twist>
 {
 public:
   PublishTwistAction(
@@ -33,7 +35,8 @@ public:
 
   bool setMessage(geometry_msgs::msg::Twist & msg) override;
 
-  bool setHaltMessage(geometry_msgs::msg::Twist & msg) override;
+  // 3. 删除 setHaltMessage
+  // bool setHaltMessage(geometry_msgs::msg::Twist & msg) override;
 };
 
 }  // namespace pb2025_sentry_behavior

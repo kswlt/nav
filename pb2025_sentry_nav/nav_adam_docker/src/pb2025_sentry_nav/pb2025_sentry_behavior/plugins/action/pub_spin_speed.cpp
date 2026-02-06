@@ -1,25 +1,16 @@
 // Copyright 2025 Lihan Chen
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Licensed under the Apache License, Version 2.0
 
 #include "pb2025_sentry_behavior/plugins/action/pub_spin_speed.hpp"
+#include <thread> // 必须添加
+#include <chrono> // 必须添加
 
 namespace pb2025_sentry_behavior
 {
 
 PublishSpinSpeedAction::PublishSpinSpeedAction(
   const std::string & name, const BT::NodeConfig & config, const BT::RosNodeParams & params)
-: RosTopicPubStatefulActionNode(name, config, params)
+: BT::RosTopicPubNode<example_interfaces::msg::Float32>(name, config, params)
 {
 }
 
@@ -27,22 +18,26 @@ BT::PortsList PublishSpinSpeedAction::providedPorts()
 {
   return providedBasicPorts({
     BT::InputPort<double>("spin_speed", 0.0, "Angular Z velocity (rad/s)"),
+    // 修改点 1: 类型改为 int
+    BT::InputPort<int>("duration", "Publish then sleep duration in milliseconds")
   });
 }
 
 bool PublishSpinSpeedAction::setMessage(example_interfaces::msg::Float32 & msg)
 {
-  double spin_speed = 0.0;
-  getInput("spin_speed", spin_speed);
+  double spin_speed;
+  if (!getInput("spin_speed", spin_speed)) {
+    return false;
+  }
+  msg.data = static_cast<float>(spin_speed);
 
-  msg.data = spin_speed;
+  // 修改点 2: 读取 int 并转换为 milliseconds
+  auto duration_ms = getInput<int>("duration");
+  if(duration_ms && duration_ms.value() > 0)
+  {
+      std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms.value()));
+  }
 
-  return true;
-}
-
-bool PublishSpinSpeedAction::setHaltMessage(example_interfaces::msg::Float32 & msg)
-{
-  msg.data = 0;
   return true;
 }
 

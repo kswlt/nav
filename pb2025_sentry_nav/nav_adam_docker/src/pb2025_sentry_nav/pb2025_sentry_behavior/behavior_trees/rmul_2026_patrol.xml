@@ -8,14 +8,16 @@
                     min_remain_time="0"
                     expected_game_progress="4"
                     key_port="{@referee_gameStatus}"/>
+      
       <Sequence>
          <Sleep msec="240000"/>
          <AlwaysSuccess/>
       </Sequence>
+
       <ForceFailure>
         <Sequence>
-          <PublishSpinSpeed spin_speed="0.0" duration="0.0" topic_name="cmd_spin"/>
-          <PublishTwist v_y="0.0" v_yaw="0.0" v_x="0.0" duration="0.0" topic_name="cmd_vel"/>
+          <PublishSpinSpeed spin_speed="0.0" duration="0" topic_name="cmd_spin"/>
+          <PublishTwist v_y="0.0" v_yaw="0.0" v_x="0.0" duration="0" topic_name="cmd_vel"/>
         </Sequence>
       </ForceFailure>
     </Fallback>
@@ -24,15 +26,19 @@
   <BehaviorTree ID="patrol_logic">
      <KeepRunningUntilFailure>
         <Sequence>
-            <SendNav2Goal goal="2.0;0.0;0.0" action_name="navigate_to_pose"/>
+            <SendNav2Goal x="2.0" y="0.0" yaw="0.0" action_name="navigate_to_pose"/>
             <Sleep msec="5000"/>
-            <SendNav2Goal goal="2.0;2.0;1.57" action_name="navigate_to_pose"/>
+            
+            <SendNav2Goal x="2.0" y="2.0" yaw="1.57" action_name="navigate_to_pose"/>
             <Sleep msec="5000"/>
-            <SendNav2Goal goal="0.0;2.0;3.14" action_name="navigate_to_pose"/>
+            
+            <SendNav2Goal x="0.0" y="2.0" yaw="3.14" action_name="navigate_to_pose"/>
             <Sleep msec="5000"/>
-             <SendNav2Goal goal="-2.0;2.0;-1.57" action_name="navigate_to_pose"/>
+            
+            <SendNav2Goal x="-2.0" y="2.0" yaw="-1.57" action_name="navigate_to_pose"/>
             <Sleep msec="5000"/>
-             <SendNav2Goal goal="-2.0;0.0;0.0" action_name="navigate_to_pose"/>
+            
+            <SendNav2Goal x="-2.0" y="0.0" yaw="0.0" action_name="navigate_to_pose"/>
             <Sleep msec="5000"/>
         </Sequence>
      </KeepRunningUntilFailure>
@@ -61,14 +67,14 @@
     </Fallback>
   </BehaviorTree>
 
-  <BehaviorTree ID="rmul_2025_patrol">
+  <BehaviorTree ID="rmul_2026_patrol">
     <KeepRunningUntilFailure>
       <ForceSuccess>
         <ReactiveSequence>
           <SubTree ID="check_game_start"/>
           
           <PublishSpinSpeed spin_speed="7.0"
-                            duration="0.0"
+                            duration="0"
                             topic_name="cmd_spin"/>
           
           <SubTree ID="check_robot_status_and_patrol"/>
@@ -103,19 +109,22 @@
     </Action>
     <Action ID="PublishSpinSpeed">
       <input_port name="spin_speed" default="0.000000" type="double">Angular Z velocity (rad/s)</input_port>
-      <input_port name="duration" type="std::chrono::milliseconds">Publish then sleep duration in milliseconds</input_port>
+      <input_port name="duration" type="int">Publish then sleep duration in milliseconds</input_port>
       <input_port name="topic_name" default="__default__placeholder__" type="std::string">Topic name</input_port>
     </Action>
     <Action ID="PublishTwist">
       <input_port name="v_y" default="0.000000" type="double">Linear Y velocity (m/s)</input_port>
       <input_port name="v_yaw" default="0.000000" type="double">Angular Z velocity (rad/s)</input_port>
       <input_port name="v_x" default="0.000000" type="double">Linear X velocity (m/s)</input_port>
-      <input_port name="duration" type="std::chrono::milliseconds">Publish then sleep duration in milliseconds</input_port>
+      <input_port name="duration" type="int">Publish then sleep duration in milliseconds</input_port>
       <input_port name="topic_name" default="__default__placeholder__" type="std::string">Topic name</input_port>
     </Action>
     <Action ID="SendNav2Goal">
-      <input_port name="goal" default="0;0;0" type="geometry_msgs::msg::PoseStamped_&lt;std::allocator&lt;void&gt; &gt;">Expected goal pose that send to nav2. Fill with format `x;y;yaw`</input_port>
+      <input_port name="x" default="0.0" type="double">Goal X</input_port>
+      <input_port name="y" default="0.0" type="double">Goal Y</input_port>
+      <input_port name="yaw" default="0.0" type="double">Goal Yaw</input_port>
       <input_port name="action_name" type="std::string" default="navigate_to_pose">Action server name</input_port>
     </Action>
   </TreeNodesModel>
+
 </root>

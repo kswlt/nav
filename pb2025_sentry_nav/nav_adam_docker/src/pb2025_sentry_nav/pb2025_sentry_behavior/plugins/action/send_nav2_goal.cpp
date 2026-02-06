@@ -1,20 +1,8 @@
 // Copyright 2025 Lihan Chen
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Licensed under the Apache License, Version 2.0
 
 #include "pb2025_sentry_behavior/plugins/action/send_nav2_goal.hpp"
-
-#include "pb2025_sentry_behavior/custom_types.hpp"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp" // 需要用来转换角度
 
 namespace pb2025_sentry_behavior
 {
@@ -27,11 +15,25 @@ SendNav2GoalAction::SendNav2GoalAction(
 
 bool SendNav2GoalAction::setGoal(nav2_msgs::action::NavigateToPose::Goal & goal)
 {
-  auto receive_goal = getInput<geometry_msgs::msg::PoseStamped>("goal");
+  // 1. 直接读取三个独立的数值 (BehaviorTree 原生支持 double，不会报错)
+  double x, y, yaw;
+  if (!getInput("x", x) || !getInput("y", y) || !getInput("yaw", yaw)) {
+    RCLCPP_ERROR(logger(), "Missing goal coordinates (x, y, yaw)");
+    return false;
+  }
 
+  // 2. 手动构建 Pose
   goal.pose.header.frame_id = "map";
   goal.pose.header.stamp = now();
-  goal.pose.pose = receive_goal->pose;
+  
+  goal.pose.pose.position.x = x;
+  goal.pose.pose.position.y = y;
+  goal.pose.pose.position.z = 0.0;
+
+  // 3. 将 yaw 转为四元数
+  tf2::Quaternion q;
+  q.setRPY(0, 0, yaw);
+  goal.pose.pose.orientation = tf2::toMsg(q);
 
   return true;
 }
@@ -42,17 +44,13 @@ BT::NodeStatus SendNav2GoalAction::onResultReceived(const WrappedResult & wr)
     case rclcpp_action::ResultCode::SUCCEEDED:
       RCLCPP_INFO(logger(), "Navigation succeeded!");
       return BT::NodeStatus::SUCCESS;
-
     case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(logger(), "Navigation aborted by server");
+      RCLCPP_ERROR(logger(), "Navigation aborted");
       return BT::NodeStatus::FAILURE;
-
     case rclcpp_action::ResultCode::CANCELED:
       RCLCPP_WARN(logger(), "Navigation canceled");
       return BT::NodeStatus::FAILURE;
-
     default:
-      RCLCPP_ERROR(logger(), "Unknown navigation result code: %d", static_cast<int>(wr.code));
       return BT::NodeStatus::FAILURE;
   }
 }
@@ -60,25 +58,26 @@ BT::NodeStatus SendNav2GoalAction::onResultReceived(const WrappedResult & wr)
 BT::NodeStatus SendNav2GoalAction::onFeedback(
   const std::shared_ptr<const nav2_msgs::action::NavigateToPose::Feedback> feedback)
 {
-  RCLCPP_DEBUG(logger(), "Distance remaining: %f", feedback->distance_remaining);
   return BT::NodeStatus::RUNNING;
 }
 
-void SendNav2GoalAction::onHalt() { RCLCPP_INFO(logger(), "SendNav2GoalAction has been halted."); }
+void SendNav2GoalAction::onHalt() { 
+    RCLCPP_INFO(logger(), "SendNav2Goal halted"); 
+}
 
 BT::NodeStatus SendNav2GoalAction::onFailure(BT::ActionNodeErrorCode error)
 {
-  RCLCPP_ERROR(logger(), "SendNav2GoalAction failed with error code: %d", error);
   return BT::NodeStatus::FAILURE;
 }
 
 BT::PortsList SendNav2GoalAction::providedPorts()
 {
-  BT::PortsList additional_ports = {
-    BT::InputPort<geometry_msgs::msg::PoseStamped>(
-      "goal", "0;0;0", "Expected goal pose that send to nav2. Fill with format `x;y;yaw`"),
-  };
-  return providedBasicPorts(additional_ports);
+  // 4. 定义三个新的输入端口
+  return providedBasicPorts({
+    BT::InputPort<double>("x", 0.0, "Goal X"),
+    BT::InputPort<double>("y", 0.0, "Goal Y"),
+    BT::InputPort<double>("yaw", 0.0, "Goal Yaw (rad)")
+  });
 }
 
 }  // namespace pb2025_sentry_behavior
